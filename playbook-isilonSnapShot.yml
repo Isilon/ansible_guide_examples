@@ -1,0 +1,66 @@
+-
+  name: Isilon URI session id
+  gather_facts: true
+  #hosts: isilon82DC1
+  hosts: isilon822dc1
+  vars:
+    snapName: API snapshot from ansible
+    snapPath: /ifs/data
+    snapExpire: "{{ ansible_date_time.epoch | int + ( 86400 * 3 ) }}"
+    userName: ansible
+    userPass: ansible
+  
+  tasks:
+    - name: get isilon API session IDs
+      uri:
+        url: https://{{ansible_host}}:8080/session/1/session
+        method: POST
+        validate_certs: no
+        body_format: json
+        body:
+          {
+            username: "{{ userName }}",
+            password: "{{ userPass }}",
+            services: ["platform", "namespace"]
+          }
+        status_code: 201
+      register: results_login
+    - debug:
+         msg="{{ results_login }}"
+
+    - name: Create snapshot on isilon
+      uri:
+        url: https://{{ansible_host}}:8080/platform/1/snapshot/snapshots
+        method: POST
+        return_content: no
+        validate_certs: no
+        headers:
+          Cookie: "isisessid={{ results_login.cookies.isisessid }}"
+          X-CSRF-Token: "{{ results_login.cookies.isicsrf }}"
+          referer: "https://{{ansible_host}}:8080"
+        body_format: json
+        #body: '{{ lookup("template", "playbook-isilonSNAP.j2") }}'
+        body: 
+          '{ 
+            "name": "{{ snapName }}",
+            "path": "{{ snapPath }}",
+            "expires": {{ snapExpire }}
+          }'
+        status_code: 201
+      register: results_cookie
+    - debug:
+         msg="{{ results_cookie }}"
+
+    - name: Delete isilon API session IDs
+      uri:
+        url: https://{{ansible_host}}:8080/session/1/session
+        method: DELETE
+        validate_certs: no
+        headers:
+          Cookie: "isisessid={{ results_login.cookies.isisessid }}"
+          X-CSRF-Token: "{{ results_login.cookies.isicsrf }}"
+          referer: "https://{{ansible_host}}:8080"
+        status_code: 204
+      register: results_DEL_cookie
+    - debug:
+         msg="{{ results_DEL_cookie }}"

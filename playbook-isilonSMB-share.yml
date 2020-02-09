@@ -1,0 +1,136 @@
+- name: Isilon New SMB share domain group permissions with ansible URI module
+  #hosts: isilon82DC1
+  hosts: isilon822dc1
+  vars:
+    Isilon_IP: "https://192.168.21.141:8080"
+    isilonuser: "ansible"
+    isilonpass: "ansible"
+    Isilon_zone: "system"
+    sharename: "API SMB Ansible Share"
+    sharepath: /ifs/data/Ansible
+    sharedescr: "Share Created by Ansible Core Isilon API playbook"
+    domaingrp: "KRYPTOLULA\\domain users"
+
+  tasks:
+    - name: get isilon API session IDs
+      uri:
+        url: "{{ Isilon_IP }}/session/1/session"
+        method: POST
+        validate_certs: no
+        body_format: json
+        body:
+          {
+            username: "{{ isilonuser }}",
+            password: "{{ isilonpass }}",
+            services: ["platform", "namespace"]
+	  }
+        status_code: 201
+      register: results_login
+    - debug:
+         msg="{{ results_login }}"
+    
+    - name: make SMB share
+      uri:
+        url: "{{ Isilon_IP }}/platform/4/protocols/smb/shares"
+        method: POST
+        return_content: no
+        validate_certs: no
+        headers:
+          Cookie: "isisessid={{ results_login.cookies.isisessid }}"
+          X-CSRF-Token: "{{ results_login.cookies.isicsrf }}"
+          referer: "{{ Isilon_IP }}"
+        body_format: json
+        body:
+          {
+            ntfs_acl_support: true,
+            create_permissions: "default acl",
+            name: "{{ sharename }}",
+            path: "{{ sharepath }}",
+            description: "{{ sharedescr }}",
+            browsable: true,
+            zone: "{{ Isilon_zone }}",
+            create_path: true,
+              permissions: [
+               {
+                permission: "full",
+                permission_type: "allow",
+                trustee:
+                  {
+                   name: "{{ domaingrp }}",
+                   type: "group"
+                  } 
+              } ]
+          }
+        status_code: 201
+      register: results_cookie
+#    - debug:
+#        msg="{{ results_cookie }}"
+
+
+########################################################################################
+##### RAN user requires read access to access point on Isilon
+##### E.g. chmod -R +a user ansible allow dir_gen_all,delete_child,object_inherit,container_inherit,file_gen_all,add_file,add_subdir /ifs
+########################################################################################
+
+    - name: Apply Directory permissions via namespace API
+      uri:
+#       url: "{{ Isilon_IP }}/namespace{{ sharepath }}/?acl&nsaccess=true"
+        url: "{{ Isilon_IP }}/namespace{{ sharepath }}?acl"
+        method: PUT
+        return_content: no
+        validate_certs: no
+        headers:
+          Cookie: "isisessid={{ results_login.cookies.isisessid }}"
+          X-CSRF-Token: "{{ results_login.cookies.isicsrf }}"
+          x-isi-ifs-target-type: "container"
+          referer: "{{ Isilon_IP }}"
+        body_format: json
+        body:
+          {
+            group:
+            {
+              name: "{{ domaingrp }}",
+              type: "group"
+            },
+            authoritative: acl,
+            action: update,
+            acl: [
+             {
+              trustee:
+               {
+                name: "{{ domaingrp }}",
+                type: "group"
+               },
+              accesstype: "allow",
+              accessrights: [
+               "dir_gen_read",
+               "dir_gen_write",
+               "dir_gen_execute",
+               "std_write_dac",
+               "delete_child"
+              ],
+              inherit_flags: [
+               "object_inherit",
+               "container_inherit"
+              ],
+              op: "add"
+             } ]
+          }
+        status_code: 200
+      register: results_permission
+    - debug:
+         msg="{{ results_permission }}"
+
+    - name: Delete isilon API session IDs
+      uri:
+        url: "{{ Isilon_IP }}/session/1/session"
+        method: DELETE
+        validate_certs: no
+        headers:
+          Cookie: "isisessid={{ results_login.cookies.isisessid }}"
+          X-CSRF-Token: "{{ results_login.cookies.isicsrf }}"
+          referer: "{{ Isilon_IP }}"
+        status_code: 204
+      register: results_DEL_cookie
+#    - debug:
+#         msg="{{ results_DEL_cookie }}"

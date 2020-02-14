@@ -1,0 +1,84 @@
+- name: Isilon create new groupnet, subnet and IP pool with Ansible URI module
+  hosts: isilon82DC1
+  vars:
+    IsilonIP: "192.168.11.121"
+    GrpnetName: "NewGrpNet1"
+    SubName: "NewSubnet1"
+    SubprefixLen: 24
+    SubIPfam: "ipv4"
+    SubDescr: "New Subnet"
+    SubGateway: "192.168.12.254"
+    SubGatewayPri: 100
+    SubMTU: 1500
+    SubVlan: false
+    SubSCname: ""
+    SubSChighIP: "192.168.12.123"
+    SubSClowIP: "192.168.12.123"
+  
+  tasks:
+    - name: get isilon API session IDs
+      uri:
+        url: https://{{IsilonIP}}:8080/session/1/session
+        method: POST
+        validate_certs: no
+        body_format: json
+        body:
+          {
+            username: ansible,
+            password: password01,
+            services: ["platform", "namespace"]
+	  }
+        status_code: 201
+      register: results_login
+#    - debug:
+#         msg="{{ results_login }}"
+    
+    - name: Create Isilon Subnet
+      uri:
+        url: https://{{IsilonIP}}:8080/platform/7/network/groupnets/{{GrpnetName}}/subnets
+        method: POST
+        return_content: no
+        validate_certs: no
+        headers:
+          Cookie: "isisessid={{ results_login.cookies.isisessid }}"
+          X-CSRF-Token: "{{ results_login.cookies.isicsrf }}"
+          referer: "https://{{IsilonIP}}:8080"
+        body_format: json
+        body:
+          {
+            "addr_family": "{{SubIPfam}}",
+            "prefixlen": "{{SubprefixLen}}",
+            "description": "{{SubDescr}}",
+            "dsr_addrs": [],
+            "gateway": "{{SubGateway}}",
+            "gateway_priority": "{{SubGatewayPri}}",
+            "mtu": "{{SubMTU}}",
+            "name": "{{SubName}}",
+            "sc_service_addrs":
+              [
+                {
+                  "high": "{{SubSChighIP}}",
+                  "low": "{{SubSClowIP}}"
+                }
+              ],
+            "sc_service_name": "{{SubSCname}}",
+            "vlan_enabled": "{{SubVlan}}"
+          }
+        status_code: 201
+      register: results_Subnet
+    - debug:
+        msg="{{ results_Subnet }}"
+    
+    - name: Delete isilon API session IDs
+      uri:
+        url: https://{{IsilonIP}}:8080/session/1/session
+        method: DELETE
+        validate_certs: no
+        headers:
+          Cookie: "isisessid={{ results_login.cookies.isisessid }}"
+          X-CSRF-Token: "{{ results_login.cookies.isicsrf }}"
+          referer: "https://{{IsilonIP}}:8080"
+        status_code: 204
+      register: results_DEL_cookie
+#    - debug:
+#         msg="{{ results_DEL_cookie }}"

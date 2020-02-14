@@ -1,0 +1,73 @@
+---
+- name: Compare SMB Shares and permissions between two Isilon Clusters
+  hosts: ### only specify two isilon hosts, no more, no less ###
+    - isilon82DC1
+    - isilon82DC2
+
+  vars:
+    Isilon_IP: "https://{{ ansible_host }}:8080"
+    Isilon_PRD: "isilon82DC1"
+    Isilon_DR: "isilon82DC2"
+    isilonuser: "ansible"
+    isilonpass: "password01"
+    Isilon_zone: "system"
+    Dirpath: "~/playarea/Isilon/IsilonAPI/auditlogs/"
+    OUTputFILE: "{{inventory_hostname}}_sharelist"
+
+  tasks:
+
+    - name: get isilon API session IDs
+      uri:
+        url: "{{ Isilon_IP }}/session/1/session"
+        method: POST
+        validate_certs: no
+        body_format: json
+        body:
+          {
+            username: "{{ isilonuser }}",
+            password: "{{ isilonpass }}",
+            services: ["platform", "namespace"]
+	  }
+        status_code: 201
+      register: results_login
+      no_log: True
+    
+    - name: Get SMB share info from API
+      uri:
+        url: "{{ Isilon_IP }}/platform/4/protocols/smb/shares"
+        method: GET 
+        return_content: no
+        validate_certs: no
+        headers:
+          Cookie: "isisessid={{ results_login.cookies.isisessid }}"
+          Accept: application/json
+          X-CSRF-Token: "{{ results_login.cookies.isicsrf }}"
+          referer: "{{ Isilon_IP }}"
+        body_format: json
+      register: results_smbshares
+
+    - name: Filter json output and set new fact for reference
+      set_fact:
+        #ShareInfo: "{{ results_smbshares | json_query('json.shares[].name') }}"
+        ShareInfo: "{{ results_smbshares | json_query('json.shares[].[name,permissions]') }}"
+
+    - name: save json output to file for manual evaluation
+      local_action: copy content="{{ ShareInfo | to_nice_json }}" dest="{{ Dirpath + OUTputFILE }}"
+      changed_when: false
+
+    - name: Check for differences 
+      local_action: file state=touch path="{{OUTputFILE}}"
+      changed_when: lookup('file', Dirpath + Isilon_DR + "_sharelist") != lookup('file', Dirpath + Isilon_PRD + "_sharelist")
+      when: inventory_hostname == Isilon_DR 
+
+    - name: Delete isilon API session IDs
+      uri:
+        url: "{{ Isilon_IP }}/session/1/session"
+        method: DELETE
+        validate_certs: no
+        headers:
+          Cookie: "isisessid={{ results_login.cookies.isisessid }}"
+          X-CSRF-Token: "{{ results_login.cookies.isicsrf }}"
+          referer: "{{ Isilon_IP }}"
+        status_code: 204
+      register: results_DEL_cookie

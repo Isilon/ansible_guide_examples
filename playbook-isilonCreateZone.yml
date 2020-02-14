@@ -1,0 +1,66 @@
+- name: Isilon Create New Access Zone with Ansible URI module
+  hosts: isilon82DC1
+  vars:
+    IsilonIP: "192.168.11.121"
+    ZoneName: "NewZone"
+    GrpNetName: "NewGrpNet1"
+    ifsPath: "/ifs/NewZone"
+    AuthProvider: "ADS:KRYPTOLULA.LOCAL"
+  
+  tasks:
+    - name: get isilon API session IDs
+      uri:
+        url: https://{{IsilonIP}}:8080/session/1/session
+        method: POST
+        validate_certs: no
+        body_format: json
+        body:
+          {
+          username: ansible,
+          password: password01,
+          services: ["platform", "namespace"]
+	}
+        status_code: 201
+      register: results_login
+#    - debug:
+#         msg="{{ results_login }}"
+    
+    - name: create access zone 
+      uri:
+        url: https://{{IsilonIP}}:8080/platform/3/zones
+        method: POST
+        return_content: no
+        validate_certs: no
+        headers:
+          Cookie: "isisessid={{ results_login.cookies.isisessid }}"
+          X-CSRF-Token: "{{ results_login.cookies.isicsrf }}"
+          referer: "https://{{IsilonIP}}:8080"
+        body_format: json
+        body:
+          {
+            name: "{{ZoneName}}",
+            groupnet: "{{GrpNetName}}",
+            path: "{{ifsPath}}",
+            create_path: true,
+            auth_providers: [
+              "{{AuthProvider}}"
+              ]
+          }
+        status_code: 201
+      register: results_zone
+    - debug:
+        msg="{{ results_zone }}"
+
+    - name: Delete isilon API session IDs
+      uri:
+        url: https://{{IsilonIP}}:8080/session/1/session
+        method: DELETE
+        validate_certs: no
+        headers:
+          Cookie: "isisessid={{ results_login.cookies.isisessid }}"
+          X-CSRF-Token: "{{ results_login.cookies.isicsrf }}"
+          referer: "https://{{IsilonIP}}:8080"
+        status_code: 204
+      register: results_DEL_cookie
+#    - debug:
+#         msg="{{ results_DEL_cookie }}"

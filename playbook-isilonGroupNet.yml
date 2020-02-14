@@ -1,0 +1,65 @@
+- name: Isilon create new groupnet, subnet and IP pool with Ansible URI module
+  hosts: isilon82DC1
+  vars:
+    IsilonIP: "192.168.11.121"
+    GrpDNSserver: "192.168.12.80"
+    GrpDNSsearch: "KRYPTOLULA.LOCAL"
+    GrpnetName: "NewGrpNet1"
+    GrpnetDesc: "New GroupNet"
+  
+  tasks:
+    - name: get isilon API session IDs
+      uri:
+        url: https://{{IsilonIP}}:8080/session/1/session
+        method: POST
+        validate_certs: no
+        body_format: json
+        body:
+          {
+            username: ansible,
+            password: password01,
+            services: ["platform", "namespace"]
+	  }
+        status_code: 201
+      register: results_login
+      no_log: True
+#    - debug:
+#         msg="{{ results_login }}"
+    
+    - name: Create Isilon GroupNet
+      uri:
+        url: https://{{IsilonIP}}:8080/platform/3/network/groupnets
+        method: POST
+        return_content: no
+        validate_certs: no
+        headers:
+          Cookie: "isisessid={{ results_login.cookies.isisessid }}"
+          X-CSRF-Token: "{{ results_login.cookies.isicsrf }}"
+          referer: "https://{{IsilonIP}}:8080"
+        body_format: json
+        body:
+          {
+            "name": "{{GrpnetName}}",
+            "dns_servers": [ "{{GrpDNSserver}}" ],
+            "dns_search": [ "{{GrpDNSsearch}}" ],
+            "dns_cache_enabled": true,
+            "description": "{{GrpnetDesc}}"
+          }
+        status_code: 201
+      register: results_Grpnet
+    - debug:
+        msg="{{ results_Grpnet }}"
+
+    - name: Delete isilon API session IDs
+      uri:
+        url: https://{{IsilonIP}}:8080/session/1/session
+        method: DELETE
+        validate_certs: no
+        headers:
+          Cookie: "isisessid={{ results_login.cookies.isisessid }}"
+          X-CSRF-Token: "{{ results_login.cookies.isicsrf }}"
+          referer: "https://{{IsilonIP}}:8080"
+        status_code: 204
+      register: results_DEL_cookie
+#    - debug:
+#         msg="{{ results_DEL_cookie }}"

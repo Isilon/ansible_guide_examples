@@ -1,0 +1,64 @@
+---
+- name: Isilon Join Active Directory Domain with Ansible URI module
+  hosts: isilon82DC1
+  vars:
+    IsilonIP: "192.168.11.121"
+    ADserver: "192.168.11.80"
+    DomainName: "KRYPTOLULA.LOCAL"
+    ADadmin: "administrator"
+    ADadminpass: "password01"
+    SFUsupport: "rfc2307"
+    GrpNetName: "groupnet0"
+
+  tasks:
+    - name: get isilon API session IDs
+      uri:
+        url: https://{{IsilonIP}}:8080/session/1/session
+        method: POST
+        validate_certs: no
+        body_format: json
+        body:
+          {
+          username: ansible,
+          password: password01,
+          services: ["platform", "namespace"]
+	}
+        status_code: 201
+      no_log: True
+      register: results_login
+
+    - name: Join Active Directory Domain
+      uri:
+        url: https://{{IsilonIP}}:8080/platform/3/auth/providers/ads
+        method: POST
+        return_content: no
+        validate_certs: no
+        headers:
+          Cookie: "isisessid={{ results_login.cookies.isisessid }}"
+          X-CSRF-Token: "{{ results_login.cookies.isicsrf }}"
+          referer: "https://{{IsilonIP}}:8080"
+        body_format: json
+        body:
+          {
+            "name": "{{DomainName}}",
+            "user": "{{ADadmin}}",
+            "password": "{{ADadminpass}}",
+            "groupnet": "{{GrpNetName}}",
+            "sfu_support": "{{SFUsupport}}",
+          }
+        status_code: 201
+      register: results_ADS
+    - debug:
+        msg="{{ results_ADS }}"
+
+    - name: Delete isilon API session IDs
+      uri:
+        url: https://{{IsilonIP}}:8080/session/1/session
+        method: DELETE
+        validate_certs: no
+        headers:
+          Cookie: "isisessid={{ results_login.cookies.isisessid }}"
+          X-CSRF-Token: "{{ results_login.cookies.isicsrf }}"
+          referer: "https://{{IsilonIP}}:8080"
+        status_code: 204
+      register: results_DEL_cookie

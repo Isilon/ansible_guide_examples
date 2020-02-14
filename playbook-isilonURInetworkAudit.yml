@@ -1,0 +1,96 @@
+---
+- name: Isilon check network interfaces
+  hosts: isilon82DC1
+  gather_facts: yes
+  vars:
+    DateTimeStamp: "{{ansible_date_time.date}}.{{ansible_date_time.time}}"
+    IsilonURL: https://{{ ansible_host }}:8080
+    IsilonPreviousInterfaces: ~/playarea/Isilon/IsilonAPI/auditlogs/IsilonPreviousInterfaces.info
+    IsilonCurrentInterfaces: ~/playarea/Isilon/IsilonAPI/auditlogs/IsilonCurrentInterfaces.info
+    IsilonNetworkOriginal: ~/playarea/Isilon/IsilonAPI/auditlogs/IsilonNetwork.Original
+    IsilonNetworkChanged: ~/playarea/Isilon/IsilonAPI/auditlogs/IsilonNetwork.Changed
+
+  tasks:
+    
+    - name: Get isilon API session IDs
+      uri:
+        url: "{{ IsilonURL }}/session/1/session"
+        method: POST
+        validate_certs: no
+        ### body: "{{ lookup('file','/root/auth.json') }}"
+        body_format: json
+        body:
+          {
+          username: ansible,
+          password: password01,
+          services: ["platform", "namespace"]
+        }
+        status_code: 201
+      register: results_login
+
+    - name: touch previous interface output to ansible server
+      local_action: file state=touch path={{ IsilonPreviousInterfaces }}
+      changed_when: false
+    
+    - name: get current isilon API network interfaces
+      uri:
+        url: "{{ IsilonURL }}/platform/7/network/interfaces"
+        method: GET
+        return_content: no
+        validate_certs: no
+        body_format: json
+        headers:
+          Cookie: "isisessid={{ results_login.cookies.isisessid }}"
+          X-CSRF-Token: "{{ results_login.cookies.isicsrf }}"
+          referer: "{{ IsilonURL }}"
+      changed_when: false
+      register: results_interfaces
+
+    - name: Save current interface output to ansible server
+      local_action: copy content={{ results_interfaces.json }}  dest={{ IsilonCurrentInterfaces }}
+      changed_when: false   
+    
+    - name: Compare current and previous isilon API network interfaces
+      uri:
+        url: "{{ IsilonURL }}/platform/7/network/interfaces"
+        method: GET
+        return_content: no
+        validate_certs: no
+        body_format: json
+        headers:
+          Cookie: "isisessid={{ results_login.cookies.isisessid }}"
+          X-CSRF-Token: "{{ results_login.cookies.isicsrf }}"
+          referer: "{{ IsilonURL }}"
+      register: compare_interfaces
+      changed_when: lookup('file', IsilonPreviousInterfaces ) != lookup('file', IsilonCurrentInterfaces )
+      notify: save_changed
+      
+    - name: Execute handlers
+      meta: flush_handlers
+
+    - name: save interface output to ansible server for next run
+      local_action: copy content={{ compare_interfaces.json }}  dest={{ IsilonPreviousInterfaces }}
+      changed_when: false
+
+    - name: Delete isilon API session IDs
+      uri:
+        url: "{{ IsilonURL }}/session/1/session"
+        method: DELETE
+        validate_certs: no
+        body_format: json
+        headers:
+          Cookie: "isisessid={{ results_login.cookies.isisessid }}"
+          X-CSRF-Token: "{{ results_login.cookies.isicsrf }}"
+          referer: "{{ IsilonURL }}"
+        status_code: 204
+      register: results_DEL_cookie
+
+  ### Save previous and current changes for audit purposes ###
+  handlers:
+
+    - name: save_changed
+      local_action: copy src={{ IsilonPreviousInterfaces }}  dest={{ IsilonNetworkOriginal }}.{{ DateTimeStamp }}.log
+      notify: save_original
+    
+    - name: save_original
+      local_action: copy content={{ compare_interfaces.json }} dest={{ IsilonNetworkChanged }}.{{ DateTimeStamp }}.log

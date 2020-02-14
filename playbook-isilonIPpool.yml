@@ -1,0 +1,71 @@
+- name: Isilon create new groupnet, subnet and IP pool with Ansible URI module
+  hosts: isilon82DC1
+  vars:
+    IsilonIP: "192.168.11.121"
+    GrpnetName: "NewGrpNet1"
+    SubName: "NewSubnet1"
+    IPpoolName: "NewPoolName"
+    IPpoolAccessZone: "NewZone"
+    IPpoolHighAddr: "192.168.12.102"
+    IPpoolLowAddr: "192.168.12.101"
+  
+  tasks:
+    - name: get isilon API session IDs
+      uri:
+        url: https://{{IsilonIP}}:8080/session/1/session
+        method: POST
+        validate_certs: no
+        body_format: json
+        body:
+          {
+            username: ansible,
+            password: password01,
+            services: ["platform", "namespace"]
+	  }
+        status_code: 201
+      register: results_login
+#    - debug:
+#         msg="{{ results_login }}"
+    
+    - name: Create Isilon IP Pool
+      uri:
+        url: https://{{IsilonIP}}:8080/platform/7/network/groupnets/{{GrpnetName}}/subnets/{{SubName}}/pools
+        method: POST
+        return_content: no
+        validate_certs: no
+        headers:
+          Cookie: "isisessid={{ results_login.cookies.isisessid }}"
+          X-CSRF-Token: "{{ results_login.cookies.isicsrf }}"
+          referer: "https://{{IsilonIP}}:8080"
+        body_format: json
+        body:
+          {
+            "name": "{{IPpoolName}}",
+            "access_zone": "{{IPpoolAccessZone}}",
+            "ranges":
+             [
+                {
+                  "high": "{{IPpoolHighAddr}}",
+                  "low": "{{IPpoolLowAddr}}"
+                }
+            ],
+          }
+        status_code: 201
+      register: results_ippool
+    - debug:
+        msg="{{ results_ippool }}"
+
+ 
+    - name: Delete isilon API session IDs
+      uri:
+        url: https://{{IsilonIP}}:8080/session/1/session
+        method: DELETE
+        validate_certs: no
+        headers:
+          Cookie: "isisessid={{ results_login.cookies.isisessid }}"
+          X-CSRF-Token: "{{ results_login.cookies.isicsrf }}"
+          referer: "https://{{IsilonIP}}:8080"
+        status_code: 204
+      register: results_DEL_cookie
+#    - debug:
+#         msg="{{ results_DEL_cookie }}"
